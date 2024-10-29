@@ -199,6 +199,18 @@ class MegaResultParser:
         return self._tree
 
 
+# Class for file processing, will extract the text out of the files.
+class FileProcessor:
+    def __init__(self) -> None:
+        pass
+
+
+# Class for downloading files, create 'mega-get' process that will download the files.
+class FileDownloader:
+    def __init__(self) -> None:
+        pass
+
+
 async def main():
     is_logged_in = False
 
