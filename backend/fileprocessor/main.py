@@ -6,7 +6,7 @@ import asyncio
 folder_url = 'https://mega.nz/folder/0Sg0iD4B#0OPF1JJgFjtYoJuStlsCtA'
 
 
-async def run_command(command: typing.List[str], input_text: str = None):
+async def run_command(command: typing.List[str], input_text: str = None, enable_stderr: bool = True):
     try:
         process = await asyncio.create_subprocess_exec(
             *command,
@@ -14,12 +14,12 @@ async def run_command(command: typing.List[str], input_text: str = None):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-
+        
         proc_input = input_text.encode() if input_text else None
 
         stdout, stderr = await process.communicate(input=proc_input)
 
-        if stderr:
+        if enable_stderr and stderr:
             print(f"Error running {' '.join(command)}: {stderr}")
 
         return stdout.decode()
@@ -201,14 +201,50 @@ class MegaResultParser:
 
 # Class for file processing, will extract the text out of the files.
 class FileProcessor:
-    def __init__(self) -> None:
+    def __init__(self, queue: asyncio.Queue) -> None:
         pass
-
 
 # Class for downloading files, create 'mega-get' process that will download the files.
 class FileDownloader:
-    def __init__(self) -> None:
-        pass
+    def __init__(self, file_list: typing.List[str], queue: asyncio.Queue) -> None:
+        self._file_list = file_list
+        self._queue = queue
+    
+    @property
+    def file_list(self) -> typing.List[str]:
+        return self._file_list
+    
+    async def worker(self):
+        file_path = await self._queue.get()
+
+        await run_command(['mega-get', file_path[3:], file_path], enable_stderr=False)
+        print('downloaded', file_path)
+        self._queue.task_done()
+    
+    
+    async def download(self):
+        for file in self.file_list:
+            await self._queue.put(file)
+        
+        tasks: typing.List[asyncio.Task] = []
+        for i in range(len(self.file_list)):
+            tasks.append(asyncio.create_task(self.worker()))
+            
+        await self._queue.join()
+        
+        for task in tasks:
+            task.cancel()
+        
+        await asyncio.gather(*task, return_exceptions=True)
+    
+class Coordinatior:
+    def __init__(self, file_list: typing.List[str]):
+        self._queue = asyncio.Queue()
+        self._downloader = FileDownloader(file_list, self._queue)
+        self._processor = FileProcessor(self._queue)
+        
+    async def start(self):
+        await self._downloader.download()
 
 
 async def main():
@@ -229,7 +265,7 @@ async def main():
         parser = MegaResultParser(
             "CS",
             text,
-            MegaParserSettings([".txt", ".pdf", ".doc"], ["20441 - מבוא למדעי המחשב ושפת Java"]))
+            MegaParserSettings([".txt", ".pdf", ".doc"], ["04101 - אשנב למתמטיקה"]))
 
         tree = parser.parse()
 
@@ -243,6 +279,9 @@ async def main():
 
         for file in file_list:
             fw.write(file + "\n")
+            
+        coord = Coordinatior(file_list)
+        await coord.start()
 
         if is_logged_in:
             await run_command(["mega-logout"])
