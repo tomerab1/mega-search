@@ -1,5 +1,6 @@
 dir_names.txt
 files.txt
+log.txt
 CS/
 dev-env/
-
+__pycache__
