@@ -1,6 +1,7 @@
 from enum import Enum
 import os
 import typing
+from utils import get_path_without_root
 
 
 class DirNodeType(Enum):
@@ -64,25 +65,32 @@ class DirNode:
 
 
 class DirTree:
-    def __init__(self, root: str) -> None:
+    def __init__(self, root: str, allowed_dirs: typing.List[str] | None = None) -> None:
         self._root = DirNode(root, DirNodeType.Dir)
         self._dfs_stack = [self._root]
+        self._allowed_dirs = allowed_dirs
 
     @property
     def root(self) -> DirNode:
         return self._root
+
+    @property
+    def allowed_dirs(self) -> typing.List[str]:
+        return self._allowed_dirs
 
     def __iter__(self):
         self._dfs_stack = [self._root]
         return self
 
     def __next__(self) -> DirNode:
-        if not self._dfs_stack:
-            raise StopIteration
+        while self._dfs_stack:
+            current = self._dfs_stack.pop()
+            self._dfs_stack.extend(current.children)
 
-        current = self._dfs_stack.pop()
-        self._dfs_stack.extend(current.children)
-        return current
+            if self.allowed_dirs and any([allowed_dir in current.abs_name for allowed_dir in self.allowed_dirs]):
+                return current
+
+        raise StopIteration
 
     def pprint(self) -> str:
         print(self._root.pprint())
@@ -94,12 +102,12 @@ class MegaParserSettings:
         self._allowed_dirs = allowed_dirs
 
     @property
-    def file_postfixes(self):
-        return self._postfixes
+    def allowed_dirs(self) -> typing.List[str]:
+        return self._allowed_dirs
 
     @property
-    def allowed_dirs(self):
-        return self._allowed_dirs
+    def file_postfixes(self) -> typing.List[str]:
+        return self._postfixes
 
 
 class MegaResultTokenType(str, Enum):
@@ -141,7 +149,7 @@ class MegaResultParser:
     def __init__(self, root_name: str, text: str, settings: MegaParserSettings) -> None:
         self._settings = settings
         self._lexer = MegaResultLexer(text, settings)
-        self._tree = DirTree(root_name)
+        self._tree = DirTree(root_name, allowed_dirs=settings.allowed_dirs)
 
     def parse(self) -> DirTree:
         stack = [(self._tree.root, -1)]
@@ -159,20 +167,6 @@ class MegaResultParser:
             node_type = DirNodeType.Dir if token_type is MegaResultTokenType.Dir else DirNodeType.File
 
             abs_name = os.path.join(parent_node.abs_name, content)
-
-            if self._settings.allowed_dirs:
-                should_skip = False
-
-                for allowed_dir in self._settings.allowed_dirs:
-                    # change the 3:
-                    if not any([path in abs_name[3:] for path in allowed_dir.split('/')]):
-                        should_skip = True
-                        break
-
-                if should_skip:
-                    print(f"Skipping {abs_name}")
-                    continue
-
             new_node = DirNode(abs_name, node_type)
             parent_node.add_child(new_node)
 

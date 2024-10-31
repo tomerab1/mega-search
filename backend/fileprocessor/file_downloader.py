@@ -1,7 +1,7 @@
 import asyncio
 import typing
-
-from utils import run_command
+import tqdm
+from utils import run_command, get_path_without_root
 
 
 class FileDownloader:
@@ -11,21 +11,18 @@ class FileDownloader:
         self._file_list = file_list
         self._queue = queue
         self._semaphore = asyncio.Semaphore(FileDownloader._MAX_WORKERS)
+        self._pbar = tqdm.tqdm(total=len(file_list))
 
     @property
     def file_list(self) -> typing.List[str]:
         return self._file_list
 
-    def get_path_without_root(self, path: str) -> str:
-        return path[path.index('/') + 1:]
-
     async def worker(self):
         async with self._semaphore:
             try:
                 file_path = await self._queue.get()
-                output = await run_command(['mega-get', self.get_path_without_root(file_path), file_path], enable_stderr=False)
-                print(
-                    f"downloaded {self.get_path_without_root(file_path)} to {file_path}")
+                await run_command(['mega-get', get_path_without_root(file_path), file_path], enable_stderr=False)
+                self._pbar.update(1)
             except Exception as e:
                 print(f"Error downloading {file_path}: {e}")
             finally:
@@ -40,6 +37,7 @@ class FileDownloader:
             tasks.append(asyncio.create_task(self.worker()))
 
         await self._queue.join()
+        self._pbar.close()
 
         for task in tasks:
             task.cancel()

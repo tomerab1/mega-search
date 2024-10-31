@@ -22,3 +22,7 @@ async def run_command(command: typing.List[str], input_text: str = None, enable_
     except Exception as e:
         print(f"Exception while running {' '.join(command)}: {e}")
         return None
+
+
+def get_path_without_root(path: str) -> str:
+    return path[path.index('/') + 1:]
