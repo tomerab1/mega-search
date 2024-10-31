@@ -5,9 +5,12 @@ from utils import run_command
 
 
 class FileDownloader:
+    _MAX_WORKERS = 20
+
     def __init__(self, file_list: typing.List[str], queue: asyncio.Queue, queue2) -> None:
         self._file_list = file_list
         self._queue = queue
+        self._semaphore = asyncio.Semaphore(FileDownloader._MAX_WORKERS)
 
     @property
     def file_list(self) -> typing.List[str]:
@@ -17,16 +20,16 @@ class FileDownloader:
         return path[path.index('/') + 1:]
 
     async def worker(self):
-        try:
-            file_path = await self._queue.get()
-            output = await run_command(['mega-get', self.get_path_without_root(file_path), file_path], enable_stderr=False)
-            print(output)
-            print(
-                f"downloaded {self.get_path_without_root(file_path)} to {file_path}")
-        except Exception as e:
-            print(f"Error downloading {file_path}: {e}")
-        finally:
-            self._queue.task_done()
+        async with self._semaphore:
+            try:
+                file_path = await self._queue.get()
+                output = await run_command(['mega-get', self.get_path_without_root(file_path), file_path], enable_stderr=False)
+                print(
+                    f"downloaded {self.get_path_without_root(file_path)} to {file_path}")
+            except Exception as e:
+                print(f"Error downloading {file_path}: {e}")
+            finally:
+                self._queue.task_done()
 
     async def download(self):
         for file in self.file_list:

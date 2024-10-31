@@ -39,8 +39,8 @@ async def main():
             for file in file_list:
                 fw.write(file + "\n")
 
-            # coord = Coordinatior(file_list)
-            # await coord.start()
+            coord = Coordinatior(file_list)
+            await coord.start()
 
         await run_command(["mega-logout"])
 
