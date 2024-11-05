@@ -2,5 +2,13 @@ pytesseract==0.3.13
 pillow==11.0.0
 pdf2image==1.17.0 
 Spire.Doc==12.7.1 
-tqdm==4.66.6 
+tqdm==4.66.6
+aiofiles==24.1.0 
+opencv-contrib-python==4.10.0.84
+langdetect
 uvloop
+
+# polyglot
+# pycld2
+# apt-get install python3-numpy libicu-dev
+# apt-get install python3-icu

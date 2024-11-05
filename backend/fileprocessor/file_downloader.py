@@ -1,16 +1,19 @@
 import asyncio
 import typing
 import tqdm
-from utils import run_command, get_path_without_root
+from utils import run_command, get_path_without_prefix
 
 
 class FileDownloader:
-    _MAX_WORKERS = 20
-
-    def __init__(self, file_list: typing.List[str], queue: asyncio.Queue, queue2) -> None:
+    def __init__(self,
+                 file_list: typing.List[str],
+                 queue: asyncio.Queue,
+                 file_processor_queue: asyncio.Queue,
+                 semaphore: asyncio.Semaphore) -> None:
         self._file_list = file_list
         self._queue = queue
-        self._semaphore = asyncio.Semaphore(FileDownloader._MAX_WORKERS)
+        self._file_processor_queue = file_processor_queue
+        self._semaphore = semaphore
         self._pbar = tqdm.tqdm(total=len(file_list))
 
     @property
@@ -21,7 +24,9 @@ class FileDownloader:
         async with self._semaphore:
             try:
                 file_path = await self._queue.get()
-                await run_command(['mega-get', get_path_without_root(file_path), file_path], enable_stderr=False)
+                await run_command(['mega-get', get_path_without_prefix(file_path, "data/CS"), file_path], enable_stderr=False)
+                # publish work to the file processor queue
+                await self._file_processor_queue.put(file_path)
                 self._pbar.update(1)
             except Exception as e:
                 print(f"Error downloading {file_path}: {e}")
@@ -33,13 +38,15 @@ class FileDownloader:
             await self._queue.put(file)
 
         tasks: typing.List[asyncio.Task] = []
-        for i in range(len(self.file_list)):
+        for _ in range(len(self.file_list)):
             tasks.append(asyncio.create_task(self.worker()))
 
         await self._queue.join()
         self._pbar.close()
 
+        await self._file_processor_queue.put("@@Processing$Done@@")
+        await self._file_processor_queue.join()
+
         for task in tasks:
             task.cancel()
-
         await asyncio.gather(*tasks, return_exceptions=True)

@@ -1,7 +1,6 @@
 from enum import Enum
 import os
 import typing
-from utils import get_path_without_root
 
 
 class DirNodeType(Enum):
@@ -87,7 +86,10 @@ class DirTree:
             current = self._dfs_stack.pop()
             self._dfs_stack.extend(current.children)
 
-            if self.allowed_dirs and any([allowed_dir in current.abs_name for allowed_dir in self.allowed_dirs]):
+            if not self.allowed_dirs:
+                return current
+
+            if any([allowed_dir in current.abs_name for allowed_dir in self.allowed_dirs]):
                 return current
 
         raise StopIteration

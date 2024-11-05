@@ -1,6 +1,3 @@
-dir_names.txt
-files.txt
-log.txt
-CS/
+data/
 dev-env/
 __pycache__/
