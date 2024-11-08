@@ -12,4 +12,4 @@ RUN apk add --no-cache gcc musl-dev linux-headers && \
 
 COPY . .
 
-ENTRYPOINT [ "./entrypoint.sh" ]
+CMD ["python3", "main.py"]

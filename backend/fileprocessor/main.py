@@ -37,7 +37,7 @@ async def main():
             parser = MegaResultParser(
                 "data/CS",
                 text,
-                MegaParserSettings([".txt", ".pdf", ".doc"], ["04101 - אשנב למתמטיקה/Mamans/2024c"]))
+                MegaParserSettings([".txt", ".pdf", ".doc"], ["20229 - אלגברה לינארית 2/Mamans/2009a"]))
 
             logger.debug("parsing dir tree")
             tree = parser.parse()

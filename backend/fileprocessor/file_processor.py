@@ -1,5 +1,4 @@
 import asyncio
-import requests
 import unicodedata
 import logging
 import aiofiles

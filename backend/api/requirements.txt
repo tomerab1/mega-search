@@ -1,0 +1,4 @@
+python-dotenv==1.0.1
+fastapi[standard]
+uvicorn==0.17.6
+elasticsearch[async]
