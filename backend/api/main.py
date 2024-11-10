@@ -33,7 +33,9 @@ async def health():
 
 @app.get("/doc")
 async def get_doc():
-    await es.indices.create(index="test_index")
+    if not await es.indices.exists(index="test_index"):
+        await es.indices.create(index="test_index")
+
     await es.index(index="test_index",
                    id="test_doc_id",
                    document={

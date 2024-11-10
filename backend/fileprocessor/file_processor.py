@@ -1,10 +1,13 @@
 import asyncio
+import concurrent.futures
 import unicodedata
 import logging
-import aiofiles
 import re
-from PIL import Image
+import os
 import utils
+import pdfplumber
+from typing import List
+from PIL import Image
 from spire.doc import *
 from spire.doc.common import *
 import pytesseract
@@ -14,25 +17,27 @@ logger = logging.getLogger(__name__)
 
 
 class FileProcessor:
+    _MAX_WORKERS = 5
+
     def __init__(self, queue: asyncio.Queue, semaphore: asyncio.Semaphore) -> None:
         self._queue = queue
         self._semaphore = semaphore
         self._handlers = {
-            ".pdf": self.handle_pdf,
-            ".doc": self.handle_docx,
-            ".docx": self.handle_pdf,
-            ".txt": self.handle_text_based,
-            ".c": self.handle_text_based,
-            ".cpp": self.handle_text_based,
-            ".h": self.handle_text_based,
-            ".hpp": self.handle_text_based,
-            ".java": self.handle_text_based,
-            ".py": self.handle_text_based,
-            ".racket": self.handle_text_based,
+            ".pdf": FileProcessor.handle_pdf,
+            ".doc": FileProcessor.handle_docx,
+            ".docx": FileProcessor.handle_pdf,
+            ".txt": FileProcessor.handle_text_based,
+            ".c": FileProcessor.handle_text_based,
+            ".cpp": FileProcessor.handle_text_based,
+            ".h": FileProcessor.handle_text_based,
+            ".hpp": FileProcessor.handle_text_based,
+            ".java": FileProcessor.handle_text_based,
+            ".py": FileProcessor.handle_text_based,
+            ".racket": FileProcessor.handle_text_based,
         }
-        self._loop = asyncio.get_event_loop()
 
-    async def clean_text(self, text: str):
+    @staticmethod
+    def clean_text(text: str):
         text = text.replace('\n', ' ').replace(
             '\r', ' ').replace('\t', ' ').replace('|', '')
         text = unicodedata.normalize('NFKC', text)
@@ -41,52 +46,89 @@ class FileProcessor:
         text = re.sub(r'\s+', ' ', text).strip()
         return text
 
-    async def handle_pdf(self, file_path: str):
-        custom_config = r'--oem 3 --psm 6'
-        imgs = await self._loop.run_in_executor(None, pdf2image.convert_from_path, file_path)
-
+    @staticmethod
+    def handle_pdf(file_path: str):
+        pages_to_skip = []
         all_text = ""
-        for _, image in enumerate(imgs):
-            text = await self._loop.run_in_executor(None, lambda: pytesseract.image_to_string(image, lang='heb+eng', config=custom_config))
-            all_text += await self.clean_text(text) + '\n'
+
+        with pdfplumber.open(file_path) as pdf:
+            for page in pdf.pages:
+                text = FileProcessor.clean_text(page.extract_text())
+                if text:
+                    all_text += text
+                else:
+                    pages_to_skip.append(page.page_number)
+
+        custom_config = r'--oem 3 --psm 6'
+        imgs = pdf2image.convert_from_path(file_path)
+
+        for i, image in enumerate(imgs):
+            if (i + 1) in pages_to_skip:
+                continue
+            text = pytesseract.image_to_string(
+                image, lang='heb+eng', config=custom_config)
+            all_text += FileProcessor.clean_text(text) + '\n'
 
         # Will send the text to the backend api
-        async with aiofiles.open("log.txt", "w+") as fw:
-            await fw.write(all_text)
+        with open(f"{file_path.split('/')[-1].split('.')[0]}.txt", "w+") as fw:
+            fw.write(all_text)
 
-    async def handle_docx(self, file_path: str):
+    @staticmethod
+    def handle_docx(file_path: str):
         doc = Document()
         doc.LoadFromFile(file_path)
-        text = await self._loop.run_in_executor(None, doc.GetText)
+        text = doc.GetText()
         # Will send the text to the backend api
 
-    async def handle_text_based(self, file_path: str):
+    @staticmethod
+    def handle_text_based(file_path: str):
         text = ""
-        async with aiofiles.open(file_path, "r") as f:
-            text = await f.read()
+        with open(file_path, "r") as f:
+            text = f.read()
         # Will send the text to the backend api
 
     async def process(self):
-        while True:
-            try:
-                async with self._semaphore:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=FileProcessor._MAX_WORKERS) as pool:
+            tasks: List[concurrent.futures.Future] = []
+
+            while True:
+                try:
                     file_path = await self._queue.get()
 
+                    # Exit string from the downloader
                     if file_path == "@@Processing$Done@@":
                         break
 
+                    # Limit file size to 100mb
                     if os.path.exists(file_path) and os.path.getsize(file_path) > utils.as_mb(100):
                         continue
 
                     file_extension = os.path.splitext(file_path)[-1]
                     handler = self._handlers.get(file_extension)
+
                     if handler:
-                        await handler(file_path)
+                        # upload work to pool
+                        future = pool.submit(handler, file_path)
+                        tasks.append(future)
                     else:
                         logger.error(
                             f"No handler for file extension: {file_extension}")
 
-            except Exception as e:
-                logger.error(f"Error processing {file_path}: {e}")
-            finally:
-                self._queue.task_done()
+                    if len(tasks) >= FileProcessor._MAX_WORKERS:
+                        done, tasks = await asyncio.wait(
+                            [asyncio.wrap_future(task) for task in tasks],
+                            return_when=asyncio.FIRST_COMPLETED
+                        )
+
+                        for completed_task in done:
+                            try:
+                                _ = completed_task.result()
+                            except Exception as e:
+                                logger.error(f"Error in completed task: {e}")
+
+                except Exception as e:
+                    logger.error(f"Error processing {file_path}: {e}")
+                finally:
+                    self._queue.task_done()
+
+            await asyncio.gather(*[asyncio.wrap_future(task) for task in tasks])

@@ -12,4 +12,4 @@ RUN pip install -r requirements.txt
 
 COPY . .
 
-ENTRYPOINT uvicorn main:app --reload --host 0.0.0.0 --port ${PORT}
+ENTRYPOINT ["sh", "-c", "uvicorn main:app --reload --host 0.0.0.0 --port $PORT"]
