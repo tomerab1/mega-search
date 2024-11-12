@@ -9,11 +9,20 @@ class DirNodeType(Enum):
 
 
 class DirNode:
-    def __init__(self, abs_name: str, type: DirNodeType) -> None:
+    def __init__(self, abs_name: str, type: DirNodeType, handle: str) -> None:
         self._abs_name = abs_name
         self._rel_name = os.path.split(abs_name)[-1]
         self._children: typing.List['DirNode'] = []
         self._type = type
+        self._handle = handle
+
+    @property
+    def handle(self) -> str:
+        return self._handle
+
+    @handle.setter
+    def handle(self, handle: str) -> None:
+        self._handle = handle
 
     @property
     def type(self) -> DirNodeType:
@@ -52,7 +61,7 @@ class DirNode:
 
     def pprint(self, level=0) -> str:
         indent = "  " * level
-        result = f"{indent}- {self._rel_name}\n"
+        result = f"{indent}- {self._rel_name} ({self.handle})\n"
 
         for child in self._children:
             result += child.pprint(level + 1)
@@ -60,12 +69,12 @@ class DirNode:
         return result
 
     def __str__(self) -> str:
-        return f"({self.abs_name}, {self.type.name})"
+        return f"({self.abs_name}, {self.type.name} [{self.handle}])"
 
 
 class DirTree:
     def __init__(self, root: str, allowed_dirs: typing.List[str] | None = None) -> None:
-        self._root = DirNode(root, DirNodeType.Dir)
+        self._root = DirNode(root, DirNodeType.Dir, None)
         self._dfs_stack = [self._root]
         self._allowed_dirs = allowed_dirs
 
@@ -119,28 +128,33 @@ class MegaResultTokenType(str, Enum):
 
 
 class MegaResultLexer:
+    _FILE_HANDLE_PREFIX: str = "<H:"
+
     def __init__(self, text: str, settings: MegaParserSettings) -> None:
         self._settings = settings
         self._lines = text.splitlines()
         self._pos = 0
 
-    # return the type of the node, content and indent level
-    def __next__(self) -> typing.Tuple[MegaResultTokenType, str, int]:
+    # return the type of the node, content, indent level and handle
+    def __next__(self) -> typing.Tuple[MegaResultTokenType, str, int, str]:
         if self._pos >= len(self._lines):
             raise StopIteration
 
-        line = self._lines[self._pos]
-        file_parts = os.path.splitext(line)
-        extension = file_parts[-1]
+         # Handle have the format of <H:uuid>
+        file_part, handle_part = self._lines[self._pos].split(
+            MegaResultLexer._FILE_HANDLE_PREFIX)
+        indent_count = self._lines[self._pos].count('\t')
+        _, extension = os.path.splitext(file_part)
+        handle = handle_part[:-1]
         self._pos += 1
 
         if extension:
-            if any([postfix in line for postfix in self._settings.file_postfixes]):
-                return MegaResultTokenType.File, line.strip(), line.count('\t')
+            if any([postfix in file_part for postfix in self._settings.file_postfixes]):
+                return MegaResultTokenType.File, file_part.strip(), indent_count, handle
             else:
-                return MegaResultTokenType.Skip, None, -1
+                return MegaResultTokenType.Skip, None, -1, None
 
-        return MegaResultTokenType.Dir, line.strip(), line.count('\t')
+        return MegaResultTokenType.Dir, file_part.strip(), indent_count, handle
 
     def __iter__(self):
         self._pos = 0
@@ -157,7 +171,7 @@ class MegaResultParser:
         stack = [(self._tree.root, -1)]
 
         for token in self._lexer:
-            token_type, content, indent_lvl = token
+            token_type, content, indent_lvl, handle = token
 
             if token_type is MegaResultTokenType.Skip:
                 continue
@@ -169,8 +183,11 @@ class MegaResultParser:
             node_type = DirNodeType.Dir if token_type is MegaResultTokenType.Dir else DirNodeType.File
 
             abs_name = os.path.join(parent_node.abs_name, content)
-            new_node = DirNode(abs_name, node_type)
+            new_node = DirNode(abs_name, node_type, handle)
             parent_node.add_child(new_node)
+
+            if node_type == DirNodeType.File:
+                new_node.handle = parent_node.handle
 
             if token_type is MegaResultTokenType.Dir:
                 stack.append((new_node, indent_lvl))

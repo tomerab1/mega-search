@@ -47,6 +47,21 @@ class FileProcessor:
         return text
 
     @staticmethod
+    def handle_pdf_ocr(file_path: str, pages_to_skip: List[int]):
+        custom_config = r'--oem 3 --psm 6'
+        imgs = pdf2image.convert_from_path(file_path)
+
+        all_text = ""
+        for i, image in enumerate(imgs):
+            if (i + 1) in pages_to_skip:
+                continue
+            text = pytesseract.image_to_string(
+                image, lang='heb+eng', config=custom_config)
+            all_text += FileProcessor.clean_text(text) + '\n'
+
+        return all_text
+
+    @staticmethod
     def handle_pdf(file_path: str):
         pages_to_skip = []
         all_text = ""
@@ -59,15 +74,10 @@ class FileProcessor:
                 else:
                     pages_to_skip.append(page.page_number)
 
-        custom_config = r'--oem 3 --psm 6'
-        imgs = pdf2image.convert_from_path(file_path)
-
-        for i, image in enumerate(imgs):
-            if (i + 1) in pages_to_skip:
-                continue
-            text = pytesseract.image_to_string(
-                image, lang='heb+eng', config=custom_config)
-            all_text += FileProcessor.clean_text(text) + '\n'
+            # If all the pages where readable text there is not need to perform ocr, will
+            if len(pages_to_skip) != len(pdf.pages):
+                all_text += FileProcessor.handle_pdf_ocr(
+                    file_path, pages_to_skip)
 
         # Will send the text to the backend api
         with open(f"{file_path.split('/')[-1].split('.')[0]}.txt", "w+") as fw:

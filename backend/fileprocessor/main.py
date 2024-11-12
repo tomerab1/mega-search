@@ -23,7 +23,7 @@ async def main():
 
     if not os.path.exists('data/dir_names.txt'):
         logger.debug("running mega-ls")
-        stdout = await run_command(["mega-ls", "-r"])
+        stdout = await run_command(["mega-ls", "-r", "--show-handles"])
         folders = stdout.splitlines()
 
         logger.debug("creating data/dir_names.txt")
@@ -42,18 +42,23 @@ async def main():
             logger.debug("parsing dir tree")
             tree = parser.parse()
 
+            tree.pprint()
+
             dir_list = list(map(lambda node: node.abs_name, filter(
                 lambda node: node.type is DirNodeType.Dir, tree)))
 
             await asyncio.gather(*(asyncio.to_thread(os.makedirs, dir, exist_ok=True) for dir in dir_list))
+
+            # add diff checker to only list the file that were already downloaded.
+            # create file to contain all files to download and those that were downloaded and subtract them using sets.
 
             file_list = list(map(lambda node: node.abs_name, filter(
                 lambda node: node.type is DirNodeType.File, tree)))
 
             await fw.writelines(f + '\n' for f in file_list)
 
-            coord = Coordinatior(file_list)
-            await coord.start()
+            # coord = Coordinatior(file_list)
+            # await coord.start()
 
         await run_command(["mega-logout"])
 
