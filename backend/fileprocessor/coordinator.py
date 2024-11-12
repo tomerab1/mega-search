@@ -3,12 +3,13 @@ import typing
 
 from file_downloader import FileDownloader
 from file_processor import FileProcessor
+from mega_parser import DirNode
 
 
 class Coordinatior:
     _MAX_CONCURRENT_TASKS = 1024
 
-    def __init__(self, file_list: typing.List[str]):
+    def __init__(self, file_list: typing.List[DirNode]):
         self._download_queue = asyncio.Queue()
         self._processor_queue = asyncio.Queue()
         self._semaphore = asyncio.Semaphore(Coordinatior._MAX_CONCURRENT_TASKS)

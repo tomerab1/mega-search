@@ -42,8 +42,6 @@ async def main():
             logger.debug("parsing dir tree")
             tree = parser.parse()
 
-            tree.pprint()
-
             dir_list = list(map(lambda node: node.abs_name, filter(
                 lambda node: node.type is DirNodeType.Dir, tree)))
 
@@ -52,13 +50,13 @@ async def main():
             # add diff checker to only list the file that were already downloaded.
             # create file to contain all files to download and those that were downloaded and subtract them using sets.
 
-            file_list = list(map(lambda node: node.abs_name, filter(
+            file_list = list(map(lambda node: node, filter(
                 lambda node: node.type is DirNodeType.File, tree)))
 
-            await fw.writelines(f + '\n' for f in file_list)
+            await fw.writelines(f.abs_name + '\n' for f in file_list)
 
-            # coord = Coordinatior(file_list)
-            # await coord.start()
+            coord = Coordinatior(file_list)
+            await coord.start()
 
         await run_command(["mega-logout"])
 

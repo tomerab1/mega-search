@@ -5,13 +5,15 @@ import logging
 import re
 import os
 import utils
+import requests
 import pdfplumber
-from typing import List
+from typing import List, Dict, Tuple
 from PIL import Image
 from spire.doc import *
 from spire.doc.common import *
 import pytesseract
 import pdf2image
+from mega_parser import DirNode
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +64,7 @@ class FileProcessor:
         return all_text
 
     @staticmethod
-    def handle_pdf(file_path: str):
+    def handle_pdf(file_path: str) -> Tuple[str, str]:
         pages_to_skip = []
         all_text = ""
 
@@ -79,31 +81,41 @@ class FileProcessor:
                 all_text += FileProcessor.handle_pdf_ocr(
                     file_path, pages_to_skip)
 
-        # Will send the text to the backend api
-        with open(f"{file_path.split('/')[-1].split('.')[0]}.txt", "w+") as fw:
-            fw.write(all_text)
+        return (file_path, all_text)
 
     @staticmethod
-    def handle_docx(file_path: str):
+    def handle_docx(file_path: str) -> Tuple[str, str]:
         doc = Document()
         doc.LoadFromFile(file_path)
-        text = doc.GetText()
-        # Will send the text to the backend api
+        return (file_path, doc.GetText())
 
     @staticmethod
-    def handle_text_based(file_path: str):
+    def handle_text_based(file_path: str) -> Tuple[str, str]:
         text = ""
         with open(file_path, "r") as f:
             text = f.read()
-        # Will send the text to the backend api
+
+        return (file_path, text)
+
+    @staticmethod
+    def send_docs(to_send: List[Tuple[DirNode, str]], mapping: Dict[str, DirNode]):
+        # requests.post('localhost:8080/upload')
+
+        for node, conent in to_send:
+            print(f"sended {node} removing {node.abs_name}")
+            del mapping[node.abs_name]
 
     async def process(self):
         with concurrent.futures.ProcessPoolExecutor(max_workers=FileProcessor._MAX_WORKERS) as pool:
             tasks: List[concurrent.futures.Future] = []
+            path_to_file: Dict[str, DirNode] = dict()
 
             while True:
                 try:
-                    file_path = await self._queue.get()
+                    file: DirNode = await self._queue.get()
+                    file_path = file.abs_name
+
+                    path_to_file[file_path] = file
 
                     # Exit string from the downloader
                     if file_path == "@@Processing$Done@@":
@@ -124,19 +136,26 @@ class FileProcessor:
                         logger.error(
                             f"No handler for file extension: {file_extension}")
 
-                    if len(tasks) >= FileProcessor._MAX_WORKERS:
-                        done, tasks = await asyncio.wait(
-                            [asyncio.wrap_future(task) for task in tasks],
-                            return_when=asyncio.FIRST_COMPLETED
-                        )
+                    done, _ = await asyncio.wait(
+                        [asyncio.wrap_future(task) for task in tasks],
+                        return_when=asyncio.FIRST_COMPLETED
+                    )
 
-                        for completed_task in done:
-                            try:
-                                _ = completed_task.result()
-                            except Exception as e:
-                                logger.error(f"Error in completed task: {e}")
+                    to_send = []
+                    for completed_task in done:
+                        try:
+                            path, content = completed_task.result()
+                            to_send.append((path_to_file[path], content))
+                        except Exception as e:
+                            logger.error(f"Error in completed task: {e}")
+
+                    FileProcessor.send_docs(to_send, path_to_file)
+
+                    # Remove tasks that are done.
+                    tasks = [task for task in tasks if not task.done()]
 
                 except Exception as e:
+                    print(f"in failure {file}")
                     logger.error(f"Error processing {file_path}: {e}")
                 finally:
                     self._queue.task_done()

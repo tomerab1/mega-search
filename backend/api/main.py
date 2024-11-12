@@ -31,19 +31,10 @@ async def health():
         return {"status": "unhealthy", "error": str(e)}
 
 
-@app.get("/doc")
-async def get_doc():
-    if not await es.indices.exists(index="test_index"):
-        await es.indices.create(index="test_index")
-
-    await es.index(index="test_index",
-                   id="test_doc_id",
-                   document={
-                       "foo": "foo",
-                       "bar": "bar"
-                   })
-
-    return await es.get(index="test_index", id="test_doc_id")
+@app.get("/upload")
+async def upload_docs():
+    if not await es.indices.exists(index="docs"):
+        await es.indices.create(index="docs")
 
 
 @app.get('/')
